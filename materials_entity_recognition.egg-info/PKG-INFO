@@ -1,0 +1,15 @@
+Metadata-Version: 2.1
+Name: materials_entity_recognition
+Version: 3.3
+Author: Tanjin He
+Author-email: tanjin_he@berkeley.edu
+License: MIT License
+Requires-Dist: tensorflow>=2.7.0
+Requires-Dist: tensorflow-addons>=0.17.1
+Requires-Dist: protobuf>=3.19.6
+Requires-Dist: spacy
+Requires-Dist: chemdataextractor
+Requires-Dist: numpy
+Requires-Dist: transformers>=4.11.3
+Requires-Dist: torch
+Requires-Dist: psutil

@@ -90,20 +90,45 @@ def use_file_as_stdout(file_path):
     sys.stdout = Unbuffered(sys.stdout)
     print('this is printed in the console')
 
-def parse_lr_method(lr_method, delimiter='@'):
-    # Parse optimization method parameters
-    if delimiter in lr_method:
-        lr_method_name = lr_method[:lr_method.find(delimiter)]
-        lr_method_parameters = {}
-        for x in lr_method[lr_method.find(delimiter) + 1:].split(delimiter):
-            split = x.split('=')
-            assert len(split) == 2
-            lr_method_parameters[split[0]] = float(split[1])
+def parse_lr_method(lr_method):
+    """
+    Parse the learning rate method string.
+    :param lr_method: <str> learning rate method string
+    :return: <str> learning rate method name, <dict> learning rate method parameters
+    """
+    if lr_method.startswith('sgd_lr_'):
+        lr = float(lr_method.split('_')[-1])
+        return 'sgd', {'lr': lr}
+    elif lr_method.startswith('adam_lr_'):
+        lr = float(lr_method.split('_')[-1])
+        return 'adam', {'lr': lr}
+    elif lr_method.startswith('adamdecay_lr_'):
+        lr = float(lr_method.split('_')[-1])
+        warmup = 0.1  # Default warmup value
+        epsilon = 1e-8  # Default epsilon value
+        return 'adamdecay', {'lr': lr, 'warmup': warmup, 'epsilon': epsilon}
+    elif lr_method.startswith('adamdecay@'):
+        params = dict(param.split('=') for param in lr_method.split('@')[1:])
+        lr = float(params.get('lr', 1e-5))
+        warmup = float(params.get('warmup', 0.1))
+        epsilon = float(params.get('epsilon', 1e-8))
+        return 'adamdecay', {'lr': lr, 'warmup': warmup, 'epsilon': epsilon}
     else:
-        lr_method_name = lr_method
-        lr_method_parameters = {}
-    return lr_method_name, lr_method_parameters
+        raise ValueError(f"Not implemented learning method: {lr_method}")
 
+def safe_cast(value, to_type, default=None):
+    """
+    Safely cast a value to a specified type.
+    
+    :param value: The value to cast.
+    :param to_type: The type to cast the value to.
+    :param default: The default value to return if casting fails.
+    :return: The cast value or the default value if casting fails.
+    """
+    try:
+        return to_type(value)
+    except (ValueError, TypeError):
+        return default
 
 def create_dico(item_list):
     """

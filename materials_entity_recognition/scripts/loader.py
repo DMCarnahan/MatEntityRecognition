@@ -507,7 +507,8 @@ def prepare_datadict_bert(
     :return:
     """
     data = []
-
+    if 'O' not in tag_to_id:
+        tag_to_id['O'] = len(tag_to_id)    
     for sent in sentences:
         bert_input = get_bert_input(
             tokenizer=bert_tokenizer, pre_tokens=sent
@@ -535,6 +536,8 @@ def prepare_datadict_bert(
         ]
         tags = [tag_to_id[l] for l in labels]
 
+
+
         # get score_mask
         # [CLS] and [SEP] does not contribute to loss in NER
         # Only the first word piece of a token contributes to loss
@@ -547,6 +550,7 @@ def prepare_datadict_bert(
                 last_token_idx = t['source_token_idx']
             else:
                 score_mask.append(0)
+
 
         # append new entry to all data
         data.append({

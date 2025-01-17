@@ -44,8 +44,7 @@ class MatIdentification(object):
             config_template = 'bert-base-cased'
             self.bert_tokenizer = transformers.BertTokenizerFast.from_pretrained(
                 pretrained_model_name_or_path=self.bert_path,
-                model_max_length=transformers.BertTokenizerFast.max_model_input_sizes[config_template],
-                **transformers.BertTokenizerFast.pretrained_init_configuration[config_template]
+                model_max_length=transformers.BertConfig.from_pretrained(config_template).max_position_embeddings  # Corrected line
             )
         else:
             self.bert_tokenizer = None
@@ -253,6 +252,7 @@ class MatIdentification(object):
                 elif token_style == 'attribute':
                     for j, tmp_sent in enumerate(tokens):
                         # prepare input sentences for LSTM
+                        
                         input_sent = {
                             'paragraph_index': i,
                             'sentence_index': j,
@@ -282,7 +282,8 @@ class MatIdentification(object):
                 input_text=all_paras,
                 sent_tokens=all_sent_tokens,
             )
-            print('len(mat_from_db)', len(mat_from_db))
+            # Comment out the print statement
+            # print('len(mat_from_db)', len(mat_from_db))
             for i in range(len(mat_in_sents)):
                 if len(mat_from_db[i]) > 0:
                     mat_in_sents[i] = solve_conflicts(
@@ -359,8 +360,8 @@ class MatTPIdentification(object):
             config_template = 'bert-base-cased'
             self.bert_tokenizer = transformers.BertTokenizerFast.from_pretrained(
                 pretrained_model_name_or_path=self.bert_path,
-                model_max_length=transformers.BertTokenizerFast.max_model_input_sizes[config_template],
-                **transformers.BertTokenizerFast.pretrained_init_configuration[config_template]
+                model_max_length=transformers.BertConfig.from_pretrained(config_template).max_position_embeddings  # Corrected line
+                
             )
         else:
             self.bert_tokenizer = None
@@ -644,8 +645,8 @@ class MatRecognition():
             config_template = 'bert-base-cased'
             self.bert_tokenizer = transformers.BertTokenizerFast.from_pretrained(
                 pretrained_model_name_or_path=self.bert_path,
-                model_max_length=transformers.BertTokenizerFast.max_model_input_sizes[config_template],
-                **transformers.BertTokenizerFast.pretrained_init_configuration[config_template]
+                model_max_length=transformers.BertConfig.from_pretrained(config_template).max_position_embeddings  # Corrected line
+                
             )
         else:
             self.bert_tokenizer = None

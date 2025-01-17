@@ -8,7 +8,7 @@ import tensorflow as tf
 from tensorflow import keras
 from transformers import BertConfig, TFBertMainLayer
 
-from .utils import found_package
+from .utils import found_package, safe_cast
 import transformers
 import tensorflow_addons as tfa
 
@@ -68,11 +68,12 @@ class NERModel(keras.Model):
                  crf_begin_end=True,
                  dropout=0.5,
                  pre_embedding=None,
-                 lr_method='sgd-lr_.005',
+                 lr_method='sgd_lr_.005',  # Corrected learning method string
                  loss_per_token=False,
                  batch_size=1,
                  num_epochs=100,
                  steps_per_epoch=3500,
+                 weight_decay=0.01,
                  **kwargs):
         """
         Initialize the model. We can init a empty model with model_name, or reload
@@ -117,8 +118,10 @@ class NERModel(keras.Model):
         self.clean_tag = clean_tag
         self.classifier_type = classifier_type
         self.bert_path = bert_path
+        if self.bert_path:
+            self.word_dim = 0  # Ensure word_dim is 0 when using BERT
+            self.char_dim = 0  # Ensure char_dim is 0 when using BERT
         self.bert_first_trainable_layer = bert_first_trainable_layer
-        self.word_dim = word_dim
         self.word_lstm_dim = word_lstm_dim
         self.word_bidirect = word_bidirect
         self.word_unroll = word_unroll
@@ -146,6 +149,7 @@ class NERModel(keras.Model):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.steps_per_epoch = steps_per_epoch
+        self.weight_decay = safe_cast(weight_decay, float, 0.01)  # Use safe_cast to ensure weight_decay is a float
         assert id_to_tag
         if not self.bert_path:
             assert id_to_word and id_to_char and id_to_tag
@@ -171,8 +175,8 @@ class NERModel(keras.Model):
             )
 
         lr_method_name, lr_method_parameters = parse_lr_method(self.lr_method)
-        print('lr_method_name, lr_method_parameters',
-              lr_method_name, lr_method_parameters)
+        # print('lr_method_name, lr_method_parameters',
+        #       lr_method_name, lr_method_parameters)
         if lr_method_name == 'sgd':
             self.optimizer = keras.optimizers.SGD(
                 learning_rate=lr_method_parameters.get('lr', 0.005),
@@ -186,14 +190,14 @@ class NERModel(keras.Model):
             num_warmup_steps = int(
                 num_train_steps * lr_method_parameters.get('warmup', 0.05)
             )
-            print('num_train_steps, num_warmup_steps',
-                  num_train_steps, num_warmup_steps)
+            # print('num_train_steps, num_warmup_steps',
+            #       num_train_steps, num_warmup_steps)
             self.optimizer = bert_optimization.create_optimizer(
                 init_lr=lr_method_parameters.get('lr', 5e-5),
                 num_train_steps=num_train_steps,
                 num_warmup_steps=num_warmup_steps,
                 epsilon=lr_method_parameters.get('epsilon', 1e-6),
-                weight_decay_rate=lr_method_parameters.get('weight_decay_rate', 0.01),
+                weight_decay_rate=self.weight_decay,
             )
         else:
             raise ValueError(
@@ -214,9 +218,10 @@ class NERModel(keras.Model):
                     from_pt=True,
                 ).bert
             self.set_bert_trainable_layers(self.bert_layer, self.bert_first_trainable_layer)
-
-            assert self.word_dim == 0
-            assert self.char_dim == 0
+            if self.char_dim != 0:
+                self.char_dim = 0
+            assert self.word_dim == 0  # Ensure word_dim is 0 when using BERT
+            assert self.char_dim == 0  # Ensure char_dim is 0 when using BERT
             assert pre_embedding == None
 
         if self.pre_embedding is not None:
@@ -262,13 +267,13 @@ class NERModel(keras.Model):
             )
 
         if self.classifier_type == 'simple':
-            print('classifier_type', classifier_type)
+            # print('classifier_type', classifier_type)
             # activation function here is always None
             self.unary_score_layer = SimpleSequenceScores(
                 n_tags=self.n_tags,
             )
         elif self.classifier_type == 'lstm':
-            print('classifier_type', classifier_type)
+            # print('classifier_type', classifier_type)
             self.unary_score_layer = RNNSequenceScores(
                 word_bidirect=self.word_bidirect,
                 word_lstm_dim=self.word_lstm_dim,
@@ -362,6 +367,10 @@ class NERModel(keras.Model):
             # only for test
             if bert_first_trainable_layer == 100:
                 w._trainable = True
+
+        # Ensure the pooler layer is not trainable
+        if hasattr(bert_main_layer, 'pooler'):
+            bert_main_layer.pooler.trainable = False
 
     def create_constants(self):
         self.small = -1000.0
@@ -479,6 +488,8 @@ class NERModel(keras.Model):
         word_ids = inputs['words']
         # word_mask_bool: (None, max_seq_len, )
         word_mask_bool = tf.cast(inputs['score_mask'], tf.bool)
+  
+
 
         # Final input (all word features)
         _x = []
@@ -511,9 +522,11 @@ class NERModel(keras.Model):
             _x.append(char_input)
 
         if self.ele_num:
-            ele_num = tf.expand_dims(inputs['ele_num'], axis=2)
+            ele_num = tf.expand_dims(inputs.get('ele_num', tf.zeros_like(inputs['words'])), axis=2) 
             _x.append(ele_num)
-
+        else:
+            ele_num = tf.expand_dims(inputs.get('ele_num', tf.zeros_like(inputs['words'])), axis=2)
+            
         if self.only_CHO:
             only_CHO = tf.expand_dims(
                 tf.cast(inputs['only_CHO'], tf.float32),
@@ -537,6 +550,8 @@ class NERModel(keras.Model):
             )
             _x.append(pre_tag)
 
+        if not _x:
+            raise ValueError("No valid input features were provided to the model.")
         # Prepare final input
         if len(_x) == 1:
             final_inputs = _x[0]
@@ -836,29 +851,33 @@ class NERModel(keras.Model):
         eval_lines = eval_lines.rstrip()
         eval_lines = eval_lines.split('\n')
         eval_lines = [l.rstrip() for l in eval_lines]
-        for line in eval_lines:
-            print(line)
+        # Comment out the print statements
+        # for line in eval_lines:
+        #     print(line)
 
         # Confusion matrix with accuracy for each tag
-        print(("{: >2}{: >7}{: >7}%s{: >9}" % ("{: >7}" * self.n_tags)).format(
-            "ID", "NE", "Total",
-            *([tag for tag in self.all_tags] + ["Percent"])
-        ))
+        # Comment out the print statements
+        # print(("{: >2}{: >7}{: >7}%s{: >9}" % ("{: >7}" * self.n_tags)).format(
+        #     "ID", "NE", "Total",
+        #     *([tag for tag in self.all_tags] + ["Percent"])
+        # ))
         for i in range(self.n_tags):
-            print(("{: >2}{: >7}{: >7}%s{: >9}" % ("{: >7}" * self.n_tags)).format(
-                str(i), self.all_tags[i], str(count[i].sum()),
-                *([count[i][j] for j in range(self.n_tags)] +
-                  ["%.3f" % (count[i][i] * 100. / max(1, count[i].sum()))])
-            ))
+            # Comment out the print statements
+            # print(("{: >2}{: >7}{: >7}%s{: >9}" % ("{: >7}" * self.n_tags)).format(
+            #     str(i), self.all_tags[i], str(count[i].sum()),
+            #     *([count[i][j] for j in range(self.n_tags)] +
+            #       ["%.3f" % (count[i][i] * 100. / max(1, count[i].sum()))])
+            # ))
+            pass
 
         # Global accuracy
-        print("%i/%i (%.5f%%)" % (
-            count.trace(), count.sum(),
-            100. * count.trace() / max(1, count.sum())
-        ))
+        # Comment out the print statements
+        # print("%i/%i (%.5f%%)" % (
+        #     count.trace(), count.sum(),
+        #     100. * count.trace() / max(1, count.sum())
+        # ))
 
         return float(eval_lines[1].strip().split()[-1])
-
 
     def save_model(self, save_weights=False):
         """
@@ -878,6 +897,51 @@ class NERModel(keras.Model):
         if save_weights:
             self.save_weights(self.opt_cp_path)
 
+    def save_model_config(self):
+        """
+        Save the model configuration to a file.
+        """
+        model_config = {
+            'model_path': self.model_path,
+            'bert_path': self.bert_path,
+            'bert_first_trainable_layer': self.bert_first_trainable_layer,
+            'word_dim': self.word_dim,
+            'word_lstm_dim': self.word_lstm_dim,
+            'word_bidirect': self.word_bidirect,
+            'word_unroll': self.word_unroll,
+            'word_rnn_wrapper': self.word_rnn_wrapper,
+            'char_dim': self.char_dim,
+            'char_lstm_dim': self.char_lstm_dim,
+            'char_bidirect': self.char_bidirect,
+            'char_combine_method': self.char_combine_method,
+            'char_unroll': self.char_unroll,
+            'char_rnn_wrapper': self.char_rnn_wrapper,
+            'ele_num': self.ele_num,
+            'only_CHO': self.only_CHO,
+            'tar_tag': self.tar_tag,
+            'pre_tag': self.pre_tag,
+            'rnn_type': self.rnn_type,
+            'lower': self.lower,
+            'zeros': self.zeros,
+            'use_ori_text_char': self.use_ori_text_char,
+            'crf': self.crf,
+            'crf_begin_end': self.crf_begin_end,
+            'dropout': self.dropout,
+            'pre_embedding': self.pre_embedding,
+            'lr_method': 'sgd_lr_.005',  # Corrected learning method string
+            'loss_per_token': self.loss_per_token,
+            'batch_size': self.batch_size,
+            'num_epochs': self.num_epochs,
+            'steps_per_epoch': self.steps_per_epoch,
+            'weight_decay': self.weight_decay,
+            'id_to_word': self.id_to_word,
+            'id_to_char': self.id_to_char,
+            'id_to_tag': self.id_to_tag,
+        }
+        config_path = os.path.join(self.model_path, 'model_config.pkl')
+        with open(config_path, 'wb') as f:
+            pickle.dump(model_config, f)
+
     @classmethod
     def create_scratch_model(cls, model_path, bert_path=None, to_reload_model=True):
         """
@@ -887,11 +951,15 @@ class NERModel(keras.Model):
         :return:
         """
         config_path = os.path.join(model_path, 'model_config.pkl')
+        if not os.path.exists(config_path) or os.path.getsize(config_path) == 0:
+            raise FileNotFoundError(f"Model configuration file {config_path} is missing or empty.")
         with open(config_path, 'rb') as fr:
             model_config = pickle.load(fr)
+            # print(f"Loaded model configuration: {model_config}")  # Debug statement
         model_config['model_path'] = model_path
+        model_config['weight_decay'] = safe_cast(model_config.get('weight_decay', 0.01), float, 0.01)  # Use safe_cast to ensure weight_decay is a float
         if bert_path:
-            model_config['bert_path'] = bert_path
+            model_config['bert_path'] = bert_path  # Update bert_path if provided
         model_config['to_reload_model'] = to_reload_model
         model = cls(**model_config)
         batch_size = model_config['batch_size']
@@ -945,7 +1013,14 @@ class NERModel(keras.Model):
         )
         if cp_path is None:
             cp_path = os.path.join(model_path, 'opt_cp', 'cp.ckpt')
-        model.load_weights(cp_path)
+        if not os.path.exists(cp_path) or os.path.getsize(cp_path) == 0:
+            # print(f"Checkpoint file {cp_path} is missing or empty. Creating a new model from scratch.")
+            return model  # Return the newly created model instead of raising an error
+        try:
+            model.load_weights(cp_path)
+        except Exception as e:
+            # print(f"Error loading checkpoint file {cp_path}: {e}. Creating a new model from scratch.")
+            return model  # Return the newly created model if loading fails
         return model
 
 

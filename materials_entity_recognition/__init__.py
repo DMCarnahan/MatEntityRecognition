@@ -4,6 +4,7 @@ from .scripts import MatTPIdentification
 from .scripts import MatIdentificationBagging
 from .scripts import MatRecognitionBagging
 from .scripts import MatTPIdentificationBagging
+from .scripts.utils import safe_cast
 
 __author__ = 'Tanjin He'
 __maintainer__ = 'Tanjin He'

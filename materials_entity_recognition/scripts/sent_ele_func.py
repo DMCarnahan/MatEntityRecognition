@@ -7,8 +7,10 @@ __email__ = 'tanjin_he@berkeley.edu, rongzq08@gmail.com'
 
 # constant
 if found_package('material_parser'):
-    from material_parser.material_parser import MaterialParser
-    mp = MaterialParser(pubchem_lookup=False)
+    from material_parser.material_parser_old import MaterialParser
+    mp = MaterialParser()
+else:
+    mp = None
 allNonMetalElements = set(['C', 'H', 'O', 'N', 'Cl', 'F', 'P', 'S', 'Br', 'I', 'Se'] + ['He', 'Ne', 'Ar', 'Kr', 'Xe', 'Rn'])
 # element table by symbol of elements
 elementTable = {
@@ -45,6 +47,9 @@ pattern_species = regex.compile(r'^\b(((' + allEleText + r')[\·0-9]{0,5})+)\b$'
 def parse_material(material_text, para_text):
     # goal
     parsed_material = {'dopants': None, 'composition': None}
+    if mp is None:
+        print('MaterialParser is not available')
+        return parsed_material
     #     get dopants
     dopants, new_material = mp.separate_additives(material_text)
 
